@@ -38,7 +38,7 @@ public class TextSticker extends Sticker {
   private final Context context;
   private final Rect realBounds;
   private final Rect textRect;
-  protected final TextPaint textPaint;
+  private final TextPaint textPaint;
   private Drawable drawable;
   private StaticLayout staticLayout;
   private Layout.Alignment alignment;
@@ -198,6 +198,9 @@ public class TextSticker extends Sticker {
     return text;
   }
 
+  @Nullable public TextPaint getTextPaint() {
+    return textPaint;
+  }
   /**
    * Resize this view's text size with respect to its width and height
    * (minus padding). You should always call this method after the initialization.
