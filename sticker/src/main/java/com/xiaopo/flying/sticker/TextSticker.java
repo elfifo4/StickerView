@@ -198,7 +198,7 @@ public class TextSticker extends Sticker {
     return text;
   }
 
-  @Nullable public TextPaint getTextPaint() {
+  public TextPaint getTextPaint() {
     return textPaint;
   }
   /**
