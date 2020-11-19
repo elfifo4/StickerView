@@ -25,6 +25,7 @@ import com.xiaopo.flying.sticker.Sticker;
 import com.xiaopo.flying.sticker.StickerView;
 import com.xiaopo.flying.sticker.TextSticker;
 import com.xiaopo.flying.sticker.ZoomIconEvent;
+import com.xiaopo.flying.sticker.extensions.TextStickerExtKt;
 import com.xiaopo.flying.stickerview.util.FileUtil;
 
 import java.io.File;
@@ -41,8 +42,8 @@ public class MainActivity extends AppCompatActivity {
     super.onCreate(savedInstanceState);
     setContentView(R.layout.activity_main);
 
-    stickerView = (StickerView) findViewById(R.id.sticker_view);
-    Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
+    stickerView = findViewById(R.id.sticker_view);
+    Toolbar toolbar = findViewById(R.id.toolbar);
 
     //currently you can config your own icons and icon event
     //the event you can custom
@@ -176,8 +177,10 @@ public class MainActivity extends AppCompatActivity {
     stickerView.addSticker(new DrawableSticker(drawable1), Sticker.Position.BOTTOM | Sticker.Position.RIGHT);
 
     Drawable bubble = ContextCompat.getDrawable(this, R.drawable.bubble);
+    TextSticker textSticker = new TextSticker(getApplicationContext());
+    TextStickerExtKt.withUnderline(textSticker, true);
     stickerView.addSticker(
-            new TextSticker(getApplicationContext())
+            textSticker
                     .setDrawable(bubble)
                     .setText("Sticker\n")
                     .setMaxTextSize(14)

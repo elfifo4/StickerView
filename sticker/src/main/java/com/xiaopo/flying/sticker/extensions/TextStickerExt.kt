@@ -1,4 +1,4 @@
-package com.xiaopo.flying.sticker.extensions;
+package com.xiaopo.flying.sticker.extensions
 
 import android.graphics.Paint
 import android.graphics.Typeface
