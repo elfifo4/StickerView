@@ -6,21 +6,22 @@ import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.DashPathEffect;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.PointF;
 import android.graphics.RectF;
 import android.os.SystemClock;
 import android.util.AttributeSet;
-import android.util.Log;
+import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.ViewConfiguration;
 import android.widget.FrameLayout;
 
+import androidx.annotation.ColorInt;
 import androidx.annotation.IntDef;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
 
 import java.io.File;
@@ -31,6 +32,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
+import timber.log.Timber;
+
 /**
  * Sticker View
  *
@@ -38,7 +41,12 @@ import java.util.List;
  */
 public class StickerView extends FrameLayout {
 
+//    private static final String TAG = StickerView.class.getSimpleName();
+
+    final GestureDetector gestureDetector;
+
     private final boolean showIcons;
+    private final boolean showAuxiliaryLines;
     private final boolean showBorder;
     private final boolean bringToFrontCurrentSticker;
 
@@ -60,7 +68,6 @@ public class StickerView extends FrameLayout {
     protected @interface Flip {
     }
 
-    private static final String TAG = "StickerView";
 
     private static final int DEFAULT_MIN_CLICK_DELAY_TIME = 200;
 
@@ -71,6 +78,9 @@ public class StickerView extends FrameLayout {
     private final List<BitmapStickerIcon> icons = new ArrayList<>(4);
 
     private final Paint borderPaint = new Paint();
+    private final Paint auxiliaryLinePaint = new Paint();
+    private final DashPathEffect dashPathEffect = new DashPathEffect(new float[]{10f, 10f}, 0);
+
     private final RectF stickerRect = new RectF();
 
     private final Matrix sizeMatrix = new Matrix();
@@ -94,8 +104,10 @@ public class StickerView extends FrameLayout {
 
     private float oldDistance = 0f;
     private float oldRotation = 0f;
+    private float previousRotation = 0f;
 
-    @ActionMode private int currentMode = ActionMode.NONE;
+    @ActionMode
+    private int currentMode = ActionMode.NONE;
 
     private Sticker handlingSticker;
 
@@ -107,6 +119,14 @@ public class StickerView extends FrameLayout {
 
     private long lastClickTime = 0;
     private int minClickDelayTime = DEFAULT_MIN_CLICK_DELAY_TIME;
+
+    private final boolean withStyleIcon;
+
+    @ColorInt
+    private final int accentColor;
+
+    @ColorInt
+    private final int dashColor;
 
     public StickerView(Context context) {
         this(context, null);
@@ -124,12 +144,22 @@ public class StickerView extends FrameLayout {
             a = context.obtainStyledAttributes(attrs, R.styleable.StickerView);
             showIcons = a.getBoolean(R.styleable.StickerView_showIcons, false);
             showBorder = a.getBoolean(R.styleable.StickerView_showBorder, false);
+            showAuxiliaryLines = a.getBoolean(R.styleable.StickerView_showAuxiliaryLines, false);
             bringToFrontCurrentSticker =
                     a.getBoolean(R.styleable.StickerView_bringToFrontCurrentSticker, false);
+            withStyleIcon = a.getBoolean(R.styleable.StickerView_withStyleIcon, false);
+            accentColor = a.getColor(R.styleable.StickerView_accentColor, Color.GRAY);
+            dashColor = a.getColor(R.styleable.StickerView_dashColor, Color.GREEN);
 
             borderPaint.setAntiAlias(true);
+            borderPaint.setStrokeWidth(3);
             borderPaint.setColor(a.getColor(R.styleable.StickerView_borderColor, Color.BLACK));
             borderPaint.setAlpha(a.getInteger(R.styleable.StickerView_borderAlpha, 128));
+
+            auxiliaryLinePaint.setAntiAlias(true);
+            auxiliaryLinePaint.setStrokeWidth(3);
+            auxiliaryLinePaint.setColor(accentColor);
+            auxiliaryLinePaint.setAlpha(a.getInteger(R.styleable.StickerView_borderAlpha, 128));
 
             configDefaultIcons();
         } finally {
@@ -137,26 +167,46 @@ public class StickerView extends FrameLayout {
                 a.recycle();
             }
         }
+
+        gestureDetector = new GestureDetector(context, new GestureDetector.SimpleOnGestureListener() {
+            public void onLongPress(MotionEvent event) {
+                Timber.e("LongPress_detected");
+//                setHapticFeedbackEnabled(true);
+                if (currentMode == ActionMode.ICON) {
+                    if (currentIcon != null) {
+                        currentIcon.onActionLongPress(StickerView.this, event);
+                    }
+                }
+            }
+        });
     }
+
 
     public void configDefaultIcons() {
         BitmapStickerIcon deleteIcon = new BitmapStickerIcon(
-                ContextCompat.getDrawable(getContext(), R.drawable.sticker_ic_close_white_18dp),
-                BitmapStickerIcon.LEFT_TOP);
+                getContext(), R.drawable.ic_close, BitmapStickerIcon.LEFT_TOP);
         deleteIcon.setIconEvent(new DeleteIconEvent());
+
         BitmapStickerIcon zoomIcon = new BitmapStickerIcon(
-                ContextCompat.getDrawable(getContext(), R.drawable.sticker_ic_scale_white_18dp),
-                BitmapStickerIcon.RIGHT_BOTOM);
+                getContext(), R.drawable.ic_scale, BitmapStickerIcon.RIGHT_BOTTOM);
         zoomIcon.setIconEvent(new ZoomIconEvent());
-        BitmapStickerIcon flipIcon = new BitmapStickerIcon(
-                ContextCompat.getDrawable(getContext(), R.drawable.sticker_ic_flip_white_18dp),
-                BitmapStickerIcon.RIGHT_TOP);
-        flipIcon.setIconEvent(new FlipHorizontallyEvent());
 
         icons.clear();
         icons.add(deleteIcon);
         icons.add(zoomIcon);
-        icons.add(flipIcon);
+
+        if (withStyleIcon) {
+            Timber.d("withStyleIcon_!");
+//            BitmapStickerIcon styleIcon = new BitmapStickerIcon(
+//                    getContext(), R.drawable.ic_underline, BitmapStickerIcon.LEFT_BOTTOM);
+//            styleIcon.setIconEvent(new StyleIconEvent());
+//            icons.add(styleIcon);
+        } else {
+            BitmapStickerIcon flipIcon = new BitmapStickerIcon(
+                    getContext(), R.drawable.ic_flip, BitmapStickerIcon.RIGHT_TOP);
+            flipIcon.setIconEvent(new FlipHorizontallyEvent());
+            icons.add(flipIcon);
+        }
     }
 
     /**
@@ -204,7 +254,9 @@ public class StickerView extends FrameLayout {
         for (int i = 0; i < stickers.size(); i++) {
             Sticker sticker = stickers.get(i);
             if (sticker != null) {
-                sticker.draw(canvas);
+                if (sticker.isVisible()) {
+                    sticker.draw(canvas);
+                }
             }
         }
 
@@ -221,44 +273,130 @@ public class StickerView extends FrameLayout {
             float x4 = bitmapPoints[6];
             float y4 = bitmapPoints[7];
 
-            if (showBorder) {
-                canvas.drawLine(x1, y1, x2, y2, borderPaint);
-                canvas.drawLine(x1, y1, x3, y3, borderPaint);
-                canvas.drawLine(x2, y2, x4, y4, borderPaint);
-                canvas.drawLine(x4, y4, x3, y3, borderPaint);
-            }
+            if (handlingSticker != null && handlingSticker.isVisible()) {
 
-            //draw icons
-            if (showIcons) {
+                if (showBorder) {
+                    canvas.drawLine(x1, y1, x2, y2, borderPaint);
+                    canvas.drawLine(x1, y1, x3, y3, borderPaint);
+                    canvas.drawLine(x2, y2, x4, y4, borderPaint);
+                    canvas.drawLine(x4, y4, x3, y3, borderPaint);
+                }
+
                 float rotation = calculateRotation(x4, y4, x3, y3);
-                for (int i = 0; i < icons.size(); i++) {
-                    BitmapStickerIcon icon = icons.get(i);
-                    switch (icon.getPosition()) {
-                        case BitmapStickerIcon.LEFT_TOP:
+                float roundedRotation = roundOff(rotation);
 
-                            configIconMatrix(icon, x1, y1, rotation);
-                            break;
-
-                        case BitmapStickerIcon.RIGHT_TOP:
-                            configIconMatrix(icon, x2, y2, rotation);
-                            break;
-
-                        case BitmapStickerIcon.LEFT_BOTTOM:
-                            configIconMatrix(icon, x3, y3, rotation);
-                            break;
-
-                        case BitmapStickerIcon.RIGHT_BOTOM:
-                            configIconMatrix(icon, x4, y4, rotation);
-                            break;
+                if (showAuxiliaryLines) {
+                    if (previousRotation != roundedRotation) {
+                        previousRotation = roundedRotation;
+                        float quotient = Math.abs(rotation) / 45;
+                        float diff = Math.round(quotient) - quotient;
+//                        Timber.d("rotation__: %s", rotation);
+//                        Timber.d("previousRotation: %s", previousRotation);
+//                        Timber.d("Math.abs(rotation) / 45: %s", quotient);
+//                        Timber.d("round: %s", Math.round(quotient));
+//                        Timber.d("diff: %s", diff);
+                        if (Math.abs(diff) < 0.0075) {
+                            auxiliaryLinePaint.setColor(dashColor);
+                            auxiliaryLinePaint.setPathEffect(dashPathEffect);
+                            float startX = midValue(x1, x3);
+                            float startY = midValue(y1, y3);
+                            float stopX = midValue(x2, x4);
+                            float stopY = midValue(y2, y4);
+                            float deltaX = stopX - startX;
+                            if (deltaX != 0) {
+                                float deltaY = stopY - startY;
+                                float slope = deltaY / deltaX;
+                                float yLeft = slope * (0 - startX) + startY;
+                                float yRight = slope * (this.getWidth() - startX) + startY;
+                                canvas.drawLine(0, yLeft, this.getWidth(), yRight, auxiliaryLinePaint);
+                            } else {
+                                canvas.drawLine(startX, 0, startX, this.getHeight(), auxiliaryLinePaint);
+                            }
+                        }
                     }
-                    icon.draw(canvas, borderPaint);
+
+                    if (currentMode == ActionMode.DRAG) {
+
+                        auxiliaryLinePaint.setColor(accentColor);
+                        auxiliaryLinePaint.setPathEffect(null);
+
+                        int maxX = this.getWidth();
+                        int middleX = maxX / 2;
+//                        Timber.d("StickerView__ getWidth: %s, half %s", maxX, middleX);
+                        int maxY = this.getHeight();
+                        int middleY = maxY / 2;
+//                        Timber.d("StickerView__ getHeight: %s, half %s", maxY, middleY);
+
+                        float stickerCenterX = StickerView.midValue(x1, x4);
+                        float stickerCenterY = StickerView.midValue(y1, y4);
+
+                        double sensitivity = 2;
+
+                        float diffX = Math.abs(stickerCenterX - middleX);
+                        float diffY = Math.abs(stickerCenterY - middleY);
+
+                        if (diffX < sensitivity) {
+                            canvas.drawLine(middleX, 0, middleX, maxY, auxiliaryLinePaint);
+                        }
+
+                        if (diffY < sensitivity) {
+                            canvas.drawLine(0, middleY, maxX, middleY, auxiliaryLinePaint);
+                        }
+
+                        if (diffX < sensitivity || diffY < sensitivity) {
+                            if (onStickerOperationListener != null) {
+                                float minDiff = Math.min(diffX, diffY);
+                                if (minDiff < sensitivity / 3) {
+                                    onStickerOperationListener.onStickerTouchedAuxiliaryLines(handlingSticker);
+                                }
+                            }
+                        }
+
+
+                    } else if (currentMode == ActionMode.NONE) {
+                        Timber.d("currentMode == ActionMode_NONE");
+                    }
+                }
+
+                //draw icons
+                if (showIcons) {
+
+                    for (int i = 0; i < icons.size(); i++) {
+                        BitmapStickerIcon icon = icons.get(i);
+                        switch (icon.getPosition()) {
+                            case BitmapStickerIcon.LEFT_TOP:
+                                configIconMatrix(icon, x1, y1, rotation);
+                                break;
+
+                            case BitmapStickerIcon.RIGHT_TOP:
+                                configIconMatrix(icon, x2, y2, rotation);
+                                break;
+
+                            case BitmapStickerIcon.LEFT_BOTTOM:
+                                configIconMatrix(icon, x3, y3, rotation);
+                                break;
+
+                            case BitmapStickerIcon.RIGHT_BOTTOM:
+                                configIconMatrix(icon, x4, y4, rotation);
+                                break;
+                        }
+                        icon.draw(canvas, borderPaint);
+                    }
                 }
             }
+
         }
     }
 
-    protected void configIconMatrix(@NonNull BitmapStickerIcon icon, float x, float y,
-                                    float rotation) {
+    private float roundOff(float rotation) {
+        return Math.round(rotation * 100f) / 100f;
+    }
+
+    public static float midValue(float n1, float n2) {
+        return n1 / 2 + n2 / 2 + (n1 % 2 + n2 % 2) / 2;
+    }
+
+    protected void configIconMatrix(@NonNull BitmapStickerIcon icon, float x, float y, float rotation) {
         icon.setX(x);
         icon.setY(y);
         icon.getMatrix().reset();
@@ -269,7 +407,9 @@ public class StickerView extends FrameLayout {
 
     @Override
     public boolean onInterceptTouchEvent(MotionEvent ev) {
-        if (locked) return super.onInterceptTouchEvent(ev);
+        if (locked) {
+            return super.onInterceptTouchEvent(ev);
+        }
 
         switch (ev.getAction()) {
             case MotionEvent.ACTION_DOWN:
@@ -289,13 +429,18 @@ public class StickerView extends FrameLayout {
             return super.onTouchEvent(event);
         }
 
+        //deprecated
+//        int action = MotionEventCompat.getActionMasked(event);
         int action = event.getActionMasked();
 
         switch (action) {
             case MotionEvent.ACTION_DOWN:
+                Timber.d("MotionEvent.ACTION_DOWN event__: %s", event.toString());
+
                 if (onStickerAreaTouchListener != null) {
                     onStickerAreaTouchListener.onStickerAreaTouch();
                 }
+
                 if (!onTouchDown(event)) {
                     return false;
                 }
@@ -339,6 +484,7 @@ public class StickerView extends FrameLayout {
      * @return true if has touch something
      */
     protected boolean onTouchDown(@NonNull MotionEvent event) {
+
         currentMode = ActionMode.DRAG;
 
         downX = event.getX();
@@ -349,12 +495,17 @@ public class StickerView extends FrameLayout {
         oldRotation = calculateRotation(midPoint.x, midPoint.y, downX, downY);
 
         currentIcon = findCurrentIconTouched();
+        gestureDetector.onTouchEvent(event);
+
         if (currentIcon != null) {
             currentMode = ActionMode.ICON;
             currentIcon.onActionDown(this, event);
+            Timber.d("current_icon: %s", currentIcon.getDrawableName());
         } else {
             handlingSticker = findHandlingSticker();
         }
+
+//		handlingSticker = findHandlingSticker();
 
         if (handlingSticker != null) {
             downMatrix.set(handlingSticker.getMatrix());
@@ -367,11 +518,8 @@ public class StickerView extends FrameLayout {
             }
         }
 
-        if (currentIcon == null && handlingSticker == null) {
-            return false;
-        }
         invalidate();
-        return true;
+        return currentIcon != null || handlingSticker != null;
     }
 
     protected void onTouchUp(@NonNull MotionEvent event) {
@@ -379,6 +527,7 @@ public class StickerView extends FrameLayout {
 
         if (currentMode == ActionMode.ICON && currentIcon != null && handlingSticker != null) {
             currentIcon.onActionUp(this, event);
+            Timber.d("current_icon: %s", currentIcon.getDrawableName());
         }
 
         if (currentMode == ActionMode.DRAG
@@ -418,6 +567,10 @@ public class StickerView extends FrameLayout {
                     handlingSticker.setMatrix(moveMatrix);
                     if (constrained) {
                         constrainSticker(handlingSticker);
+                    }
+                    if (onStickerOperationListener != null) {
+                        Timber.d("MotionEvent.ACTION_MOVE event__: %s", event.toString());
+                        onStickerOperationListener.onStickerMoved(handlingSticker);
                     }
                 }
                 break;
@@ -488,10 +641,10 @@ public class StickerView extends FrameLayout {
     @Nullable
     protected BitmapStickerIcon findCurrentIconTouched() {
         for (BitmapStickerIcon icon : icons) {
-            float x = icon.getX() - downX;
-            float y = icon.getY() - downY;
+            float x = icon.getX() + icon.getIconRadius() - downX;
+            float y = icon.getY() + icon.getIconRadius() - downY;
             float distance_pow_2 = x * x + y * y;
-            if (distance_pow_2 <= Math.pow(icon.getIconRadius() + icon.getIconRadius(), 2)) {
+            if (distance_pow_2 <= Math.pow((icon.getIconRadius() + icon.getIconRadius()) * 1.2f, 2)) {
                 return icon;
             }
         }
@@ -593,7 +746,7 @@ public class StickerView extends FrameLayout {
      **/
     protected void transformSticker(@Nullable Sticker sticker) {
         if (sticker == null) {
-            Log.e(TAG, "transformSticker: the bitmapSticker is null or the bitmapSticker bitmap is null");
+            Timber.e("transformSticker: the bitmapSticker is null or the bitmapSticker bitmap is null");
             return;
         }
 
@@ -700,10 +853,17 @@ public class StickerView extends FrameLayout {
 
             return true;
         } else {
-            Log.d(TAG, "remove: the sticker is not in this StickerView");
-
+            Timber.d("remove: the sticker is not in this StickerView");
             return false;
         }
+    }
+
+    public void showCurrentSticker() {
+        handlingSticker.setVisible(true);
+    }
+
+    public void hideCurrentSticker() {
+        handlingSticker.setVisible(false);
     }
 
     public boolean removeCurrentSticker() {
@@ -729,19 +889,13 @@ public class StickerView extends FrameLayout {
         if (ViewCompat.isLaidOut(this)) {
             addStickerImmediately(sticker, position);
         } else {
-            post(new Runnable() {
-                @Override
-                public void run() {
-                    addStickerImmediately(sticker, position);
-                }
-            });
+            post(() -> addStickerImmediately(sticker, position));
         }
         return this;
     }
 
     protected void addStickerImmediately(@NonNull Sticker sticker, @Sticker.Position int position) {
         setStickerPosition(sticker, position);
-
 
         float scaleFactor, widthScaleFactor, heightScaleFactor;
 
@@ -884,6 +1038,13 @@ public class StickerView extends FrameLayout {
         invalidate();
     }
 
+    public void removeFrame() { //remove icons and border from current sticker
+        //through this code, condition in line 218 becomes false
+        // if (handlingSticker != null && !locked && (showBorder || showIcons))
+        handlingSticker = null;
+        invalidate(); //refresh canvas (by calling dispatchDraw(canvas))
+    }
+
     public interface OnStickerOperationListener {
         void onStickerAdded(@NonNull Sticker sticker);
 
@@ -900,6 +1061,10 @@ public class StickerView extends FrameLayout {
         void onStickerFlipped(@NonNull Sticker sticker);
 
         void onStickerDoubleTapped(@NonNull Sticker sticker);
+
+        void onStickerMoved(@NonNull Sticker sticker);
+
+        void onStickerTouchedAuxiliaryLines(@NonNull Sticker sticker);
     }
 
     public interface OnStickerAreaTouchListener {
