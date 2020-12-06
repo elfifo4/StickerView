@@ -103,8 +103,7 @@ public class StickerView extends FrameLayout {
     private boolean constrained;
 
     private OnStickerOperationListener onStickerOperationListener;
-
-//    private OnStickerAreaTouchListener onStickerAreaTouchListener;
+    private OnStickerAreaTouchListener onStickerAreaTouchListener;
 
     private long lastClickTime = 0;
     private int minClickDelayTime = DEFAULT_MIN_CLICK_DELAY_TIME;
@@ -294,6 +293,9 @@ public class StickerView extends FrameLayout {
 
         switch (action) {
             case MotionEvent.ACTION_DOWN:
+                if (onStickerAreaTouchListener != null) {
+                    onStickerAreaTouchListener.onStickerAreaTouch();
+                }
                 if (!onTouchDown(event)) {
                     return false;
                 }
@@ -898,5 +900,25 @@ public class StickerView extends FrameLayout {
         void onStickerFlipped(@NonNull Sticker sticker);
 
         void onStickerDoubleTapped(@NonNull Sticker sticker);
+    }
+
+    public interface OnStickerAreaTouchListener {
+        void onStickerAreaTouch();
+    }
+
+    public void setOnStickerAreaTouchListener(OnStickerAreaTouchListener onStickerAreaTouchListener) {
+        this.onStickerAreaTouchListener = onStickerAreaTouchListener;
+    }
+
+    public void setCurrentIcon(BitmapStickerIcon currentIcon) {
+        this.currentIcon = currentIcon;
+    }
+
+    public void deselectAnySticker() {
+        this.handlingSticker = null;
+    }
+
+    public List<Sticker> getStickers() {
+        return stickers;
     }
 }
